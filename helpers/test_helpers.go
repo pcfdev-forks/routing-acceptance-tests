@@ -2,27 +2,18 @@ package helpers
 
 import (
 	"encoding/json"
-	"errors"
-	"net/url"
 	"os"
 
-	"github.com/cloudfoundry-incubator/bbs"
+	"github.com/cloudfoundry-incubator/cf-test-helpers/helpers"
 	"github.com/nu7hatch/gouuid"
 )
 
-type RouterApiConfig struct {
-	Addresses         []string     `json:"addresses"`
-	ElbAddress        string       `json:"elb_address"`
-	Port              uint16       `json:"port"`
-	BBSAddress        string       `json:"bbs_api_url,omitempty"`
-	BBSClientCertFile string       `json:"bbs_client_cert,omitempty"`
-	BBSClientKeyFile  string       `json:"bbs_client_key,omitempty"`
-	BBSCACertFile     string       `json:"bbs_ca_cert,omitempty"`
-	BBSRequireSSL     bool         `json:"bbs_require_ssl"`
-	SystemDomain      string       `json:"system_domain"`
-	RoutingApiUrl     string       `json:"routing_api_url"`
-	UseHttp           bool         `json:"use_http"`
-	OAuth             *OAuthConfig `json:"oauth"`
+type RoutingConfig struct {
+	helpers.Config
+	Addresses     []string     `json:"addresses"`
+	SystemDomain  string       `json:"system_domain"`
+	RoutingApiUrl string       `json:"routing_api_url"`
+	OAuth         *OAuthConfig `json:"oauth"`
 }
 
 type OAuthConfig struct {
@@ -33,13 +24,9 @@ type OAuthConfig struct {
 	SkipOAuthTLSVerification bool   `json:"skip_oauth_tls_verification"`
 }
 
-const (
-	DEFAULT_BBS_API_URL = "http://bbs.service.cf.internal:8889"
-)
-
-func LoadConfig() RouterApiConfig {
-
+func LoadConfig() RoutingConfig {
 	loadedConfig := loadConfigJsonFromPath()
+	loadedConfig.Config = helpers.LoadConfig()
 
 	if loadedConfig.OAuth == nil {
 		panic("missing configuration oauth")
@@ -49,14 +36,6 @@ func LoadConfig() RouterApiConfig {
 		panic("missing configuration 'addresses'")
 	}
 
-	if loadedConfig.Port == 0 {
-		panic("missing configuration 'port'")
-	}
-
-	if loadedConfig.BBSAddress == "" {
-		loadedConfig.BBSAddress = DEFAULT_BBS_API_URL
-	}
-
 	if loadedConfig.RoutingApiUrl == "" && loadedConfig.SystemDomain == "" {
 		panic("Need to set either routing_api_url or system_domain")
 	}
@@ -64,15 +43,11 @@ func LoadConfig() RouterApiConfig {
 		loadedConfig.RoutingApiUrl = loadedConfig.Protocol() + "api." + loadedConfig.SystemDomain
 	}
 
-	if loadedConfig.BBSRequireSSL &&
-		(loadedConfig.BBSClientCertFile == "" || loadedConfig.BBSClientKeyFile == "" || loadedConfig.BBSCACertFile == "") {
-		panic("ssl enabled: missing configuration for mutual auth")
-	}
 	return loadedConfig
 }
 
-func loadConfigJsonFromPath() RouterApiConfig {
-	var config RouterApiConfig
+func loadConfigJsonFromPath() RoutingConfig {
+	var config RoutingConfig
 
 	path := configPath()
 
@@ -91,37 +66,15 @@ func loadConfigJsonFromPath() RouterApiConfig {
 }
 
 func configPath() string {
-	path := os.Getenv("ROUTER_API_CONFIG")
+	path := os.Getenv("CONFIG")
 	if path == "" {
-		panic("Must set $ROUTER_API_CONFIG to point to an integration config .json file.")
+		panic("Must set $CONFIG to point to an integration config .json file.")
 	}
 
 	return path
 }
 
-func GetBbsClient(routerApiConfig RouterApiConfig) (bbs.Client, error) {
-	bbsUrl, err := url.Parse(routerApiConfig.BBSAddress)
-	if err != nil {
-		return nil, err
-	}
-
-	var bbsClient bbs.Client
-
-	if bbsUrl.Scheme == "http" {
-		bbsClient = bbs.NewClient(bbsUrl.String())
-	} else if bbsUrl.Scheme == "https" {
-		bbsClient, err = bbs.NewSecureClient(bbsUrl.String(), routerApiConfig.BBSCACertFile,
-			routerApiConfig.BBSClientCertFile, routerApiConfig.BBSClientKeyFile)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		return nil, errors.New("invalid-scheme-in-bbs-address")
-	}
-	return bbsClient, nil
-}
-
-func (c RouterApiConfig) Protocol() string {
+func (c RoutingConfig) Protocol() string {
 	if c.UseHttp {
 		return "http://"
 	} else {

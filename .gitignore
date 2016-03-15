@@ -1,2 +1,5 @@
-router_config.json
+integration_config.json
 *.config
+results
+*.test
+
