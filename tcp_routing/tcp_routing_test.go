@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"reflect"
+	"strings"
 	"time"
 
 	"github.com/cloudfoundry-incubator/cf-routing-acceptance-tests/helpers/assets"
@@ -46,44 +46,88 @@ var _ = Describe("Tcp Routing", func() {
 		It("maps a single external port to an application's container port", func() {
 			// connect to TCP router/ELB and assert on something
 			for _, routerAddr := range routingConfig.Addresses {
-				err := checkConnection(serverId1, routerAddr, externalPort1)
+				resp, err := sendAndReceive(routerAddr, externalPort1)
 				Expect(err).ToNot(HaveOccurred())
+				Expect(resp).To(ContainSubstring(serverId1))
 			}
+		})
+
+		Context("single external port to two different apps", func() {
+			var (
+				secondAppName string
+				serverId2     string
+			)
+
+			BeforeEach(func() {
+				secondAppName = helpers.GenerateAppName()
+				serverId2 = "server2"
+				cmd := fmt.Sprintf("tcp-droplet-receiver --serverId=%s", serverId2)
+
+				// Uses --no-route flag so there is no HTTP route
+				helpers.PushAppNoStart(secondAppName, tcpDropletReceiver, routingConfig.GoBuildpackName, domainName, CF_PUSH_TIMEOUT, "-c", cmd, "--no-route")
+				helpers.EnableDiego(secondAppName, DEFAULT_TIMEOUT)
+				helpers.UpdatePorts(secondAppName, []uint16{3333}, DEFAULT_TIMEOUT)
+				helpers.CreateRouteMapping(secondAppName, "", externalPort1, 3333, DEFAULT_TIMEOUT)
+				helpers.StartApp(secondAppName, DEFAULT_TIMEOUT)
+			})
+
+			AfterEach(func() {
+				helpers.AppReport(secondAppName, DEFAULT_TIMEOUT)
+				helpers.DeleteApp(secondAppName, DEFAULT_TIMEOUT)
+			})
+
+			It("maps single external port to both applications", func() {
+				// connect to TCP router/ELB and assert on something
+				for _, routerAddr := range routingConfig.Addresses {
+					actualServerId1, err1 := getServerResponse(routerAddr, externalPort1)
+					Expect(err1).ToNot(HaveOccurred())
+					actualServerId2, err2 := getServerResponse(routerAddr, externalPort1)
+					Expect(err2).ToNot(HaveOccurred())
+					expectedServerIds := []string{serverId1, serverId2}
+					Expect(expectedServerIds).To(ConsistOf(actualServerId1, actualServerId2))
+				}
+			})
 		})
 	})
 })
 
 const (
-	DEFAULT_CONNECT_TIMEOUT = 3 * time.Second
+	DEFAULT_CONNECT_TIMEOUT = 5 * time.Second
 	CONN_TYPE               = "tcp"
+	BUFFER_SIZE             = 1024
 )
 
-func checkConnection(serverId, addr string, externalPort uint16) error {
+func getServerResponse(addr string, externalPort uint16) (string, error) {
+	response, err := sendAndReceive(addr, externalPort)
+	if err != nil {
+		return "", err
+	}
+	tokens := strings.Split(response, ":")
+	if len(tokens) == 0 {
+		return "", errors.New("Could not extract server id from response")
+	}
+	return tokens[0], nil
+}
+
+func sendAndReceive(addr string, externalPort uint16) (string, error) {
 	address := fmt.Sprintf("%s:%d", addr, externalPort)
 
 	conn, err := net.DialTimeout(CONN_TYPE, address, DEFAULT_CONNECT_TIMEOUT)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	message := []byte(fmt.Sprintf("Time is %d", time.Now().Nanosecond()))
 	_, err = conn.Write(message)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	expectedMessage := []byte(serverId + ":" + string(message))
-	buff := make([]byte, len(expectedMessage))
+	buff := make([]byte, BUFFER_SIZE)
 	_, err = conn.Read(buff)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	if !reflect.DeepEqual(buff, expectedMessage) {
-		return errors.New(fmt.Sprintf("Message mismatch. Actual=[%s], Expected=[%s]",
-			string(buff),
-			string(expectedMessage)))
-	}
-
-	return conn.Close()
+	return string(buff), conn.Close()
 }
