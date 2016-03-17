@@ -21,13 +21,14 @@ var _ = Describe("Tcp Routing", func() {
 			tcpDropletReceiver = assets.NewAssets().TcpDropletReceiver
 			serverId1          string
 			externalPort1      uint16
+			spaceName          string
 		)
 
 		BeforeEach(func() {
 			appName = helpers.GenerateAppName()
 			serverId1 = "server1"
 			cmd := fmt.Sprintf("tcp-droplet-receiver --serverId=%s", serverId1)
-			spaceName := context.RegularUserContext().Space
+			spaceName = context.RegularUserContext().Space
 			externalPort1 = helpers.CreateTcpRouteWithRandomPort(spaceName, domainName, DEFAULT_TIMEOUT)
 
 			// Uses --no-route flag so there is no HTTP route
@@ -88,6 +89,29 @@ var _ = Describe("Tcp Routing", func() {
 				}
 			})
 		})
+		Context("when multiple external ports are mapped to a single app port", func() {
+			var (
+				externalPort2 uint16
+			)
+			BeforeEach(func() {
+				externalPort2 = helpers.CreateTcpRouteWithRandomPort(spaceName, domainName, DEFAULT_TIMEOUT)
+
+				helpers.CreateRouteMapping(appName, "", externalPort2, 3333, DEFAULT_TIMEOUT)
+			})
+
+			It("it routes traffic from two external ports to the app", func() {
+				for _, routerAddr := range routingConfig.Addresses {
+					resp, err := sendAndReceive(routerAddr, externalPort1)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resp).To(ContainSubstring(serverId1))
+
+					resp, err := sendAndReceive(routerAddr, externalPort2)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(resp).To(ContainSubstring(serverId1))
+				}
+			})
+		})
+
 	})
 })
 
