@@ -19,7 +19,7 @@ import (
 	"github.com/cloudfoundry-incubator/cf-test-helpers/generator"
 	cf_helpers "github.com/cloudfoundry-incubator/cf-test-helpers/helpers"
 	routing_api "github.com/cloudfoundry-incubator/routing-api"
-	"github.com/cloudfoundry-incubator/routing-api/db"
+	"github.com/cloudfoundry-incubator/routing-api/models"
 	uaaclient "github.com/cloudfoundry-incubator/uaa-go-client"
 	uaaconfig "github.com/cloudfoundry-incubator/uaa-go-client/config"
 )
@@ -72,7 +72,7 @@ var (
 	containerPort uint32
 )
 
-func validateTcpRouteMapping(tcpRouteMapping db.TcpRouteMapping) bool {
+func validateTcpRouteMapping(tcpRouteMapping models.TcpRouteMapping) bool {
 	if tcpRouteMapping.TcpRoute.RouterGroupGuid == "" {
 		return false
 	}
@@ -103,8 +103,10 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 
 	routingApiClient.SetToken(token.AccessToken)
 	routerGroupGuid := routing_helpers.GetRouterGroupGuid(routingApiClient)
-	domainName = fmt.Sprintf("%s.%s", generator.PrefixedRandomName("TCP-DOMAIN"), routingConfig.SystemDomain)
-	routing_helpers.CreateSharedDomain(domainName, routerGroupGuid, DEFAULT_TIMEOUT)
+	domainName = fmt.Sprintf("%s.%s", generator.PrefixedRandomName("TCP-DOMAIN-"), routingConfig.SystemDomain)
+	cf.AsUser(context.AdminUserContext(), context.ShortTimeout(), func() {
+		routing_helpers.CreateSharedDomain(domainName, routerGroupGuid, DEFAULT_TIMEOUT)
+	})
 
 	return []byte{}
 }, func(payload []byte) {

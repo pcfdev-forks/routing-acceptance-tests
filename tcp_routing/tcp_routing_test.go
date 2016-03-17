@@ -105,7 +105,7 @@ var _ = Describe("Tcp Routing", func() {
 					Expect(err).ToNot(HaveOccurred())
 					Expect(resp).To(ContainSubstring(serverId1))
 
-					resp, err := sendAndReceive(routerAddr, externalPort2)
+					resp, err = sendAndReceive(routerAddr, externalPort2)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(resp).To(ContainSubstring(serverId1))
 				}
