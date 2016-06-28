@@ -67,19 +67,23 @@ var (
 )
 
 func checkRoutingApiEnabled() {
-	cmd := cf.Cf("curl", "/v2/info")
+	cmd := cf.Cf("curl", "/v2/shared_domains")
 	Expect(cmd.Wait(DEFAULT_TIMEOUT)).To(Exit(0))
 
-	type infoResponse struct {
-		RoutingEndpoint string `json:"routing_endpoint"`
+	type errorResponse struct {
+		ErrorCode string `json: "error_code"`
 	}
 
-	var response infoResponse
+	var response errorResponse
 	err := json.Unmarshal(cmd.Buffer().Contents(), &response)
 	Expect(err).NotTo(HaveOccurred())
 
-	enabled := response.RoutingEndpoint != ""
-	Expect(enabled).To(BeTrue(), "Routing API is not enabled")
+	errCode := response.ErrorCode
+	Expect(errCode).ToNot(Equal("CF-RoutingApiUnavailable"), "Routing API is not enabled")
+	Expect(errCode).To(
+		BeEmpty(),
+		fmt.Sprintf("Received error getting shared domains: %s", errCode),
+	)
 }
 
 var _ = BeforeSuite(func() {
@@ -91,10 +95,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	routingApiClient.SetToken(token.AccessToken)
-	routerGroupGuid := getRouterGroupGuid(routingApiClient)
 	domainName = fmt.Sprintf("%s.%s", generator.PrefixedRandomName("TCP-DOMAIN-"), routingConfig.AppsDomain)
 	cf.AsUser(context.AdminUserContext(), context.ShortTimeout(), func() {
 		checkRoutingApiEnabled()
+		routerGroupGuid := getRouterGroupGuid(routingApiClient)
 		routing_helpers.CreateSharedDomain(domainName, routerGroupGuid, DEFAULT_TIMEOUT)
 		Expect(routing_helpers.GetDomainGuid(domainName, DEFAULT_TIMEOUT)).NotTo(BeEmpty())
 	})
